@@ -1,11 +1,13 @@
-// Thu tu include theo yeu cau cua nhom.
 #include "ChuyenBay.h"
 #include "KhachHang.h"
 #include "MayBay.h"
 #include "AirlineManager.h"
 
 #include "Utils.h"
+#include "ConsoleUI.h"
 
+#include <algorithm>
+#include <vector>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -26,30 +28,6 @@ constexpr const char* MAU_LUC = "\033[1;32m";
 constexpr const char* MAU_DO = "\033[1;31m";
 constexpr const char* MAU_VANG = "\033[1;33m";
 constexpr const char* MAU_RESET = "\033[0m";
-
-void batMauConsole() {
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
-    const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD mode = 0;
-    if (handle != INVALID_HANDLE_VALUE && GetConsoleMode(handle, &mode)) {
-        SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-    }
-#endif
-}
-
-void xoaManHinh() {
-    std::cout << "\033[2J\033[H";
-}
-
-void tieuDe(const std::string& name) {
-    std::cout << MAU_XANH
-              << "\n===============================================================\n"
-              << "  " << name << '\n'
-              << "===============================================================\n"
-              << MAU_RESET;
-}
 
 void baoKetQua(bool thanhCong, const std::string& noiDung) {
     std::cout << (thanhCong ? MAU_LUC : MAU_DO)
@@ -136,12 +114,12 @@ std::string nhapMatKhau(bool& nhanEsc) {
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &oldSettings);
     std::cout << '\n';
-    return password;
+    return password;    
 #endif
 }
 
 void hienThiMayBay(const AirlineManager& quanLy) {
-    tieuDe("DANH SACH MAY BAY");
+    ConsoleUI::tieuDe("DANH SACH MAY BAY");
     std::cout << "+----------------------+------------+\n"
               << "| So hieu may bay      | So cho     |\n"
               << "+----------------------+------------+\n";
@@ -152,53 +130,75 @@ void hienThiMayBay(const AirlineManager& quanLy) {
     std::cout << "+----------------------+------------+\n";
 }
 
+enum class Ghe { Trong, Cho, DaCap };
+
+std::vector<Ghe> lapSoDo(const AirlineManager& quanLy, const ChuyenBay& flight) {
+    std::vector<Ghe> ghe(flight.laySoCho(), Ghe::Trong);
+    flight.layDanhSachVe().duyet([&](const Ve& ve) {
+        ghe.at(ve.laySoGhe() - 1) = Ghe::DaCap;
+    });
+    quanLy.layHangDoiKhachHang().duyet([&](const KhachHang& khach) {
+        if (khach.layMaChuyenBay() == flight.layMaChuyenBay())
+            ghe.at(khach.laySoGhe() - 1) = Ghe::Cho;
+    });
+    return ghe;
+}
+
 void hienThiChuyenBay(const AirlineManager& quanLy) {
-    tieuDe("DANH SACH CHUYEN BAY");
+    ConsoleUI::tieuDe("DANH SACH CHUYEN BAY");
     std::cout << "+------------+------------+------------+-------------------+-------------+-------+-------+\n"
               << "| Ma CB      | May bay    | Ngay di    | San bay den        | Trang thai  | Ve    | Trong |\n"
               << "+------------+------------+------------+-------------------+-------------+-------+-------+\n";
-    quanLy.layDanhSachChuyenBay().duyet([](const ChuyenBay& flight) {
-        std::cout << "| " << std::left << std::setw(10) << flight.layMaChuyenBay()
+    quanLy.layDanhSachChuyenBay().duyet([&](const ChuyenBay& flight) {
+        const auto ghe = lapSoDo(quanLy, flight);
+        std::cout << "| " << MAU_XANH << std::left << std::setw(10) << flight.layMaChuyenBay() << MAU_RESET
                   << " | " << std::setw(10) << flight.laySoHieuMayBay()
                   << " | " << std::setw(10) << flight.layNgayKhoiHanh()
                   << " | " << std::setw(17) << flight.laySanBayDen()
                   << " | " << std::setw(11) << Utils::tenTrangThai(flight.layTrangThai())
                   << " | " << std::right << std::setw(5) << flight.laySoVe()
-                  << " | " << std::setw(5) << flight.laySoGheTrong() << " |\n";
+                  << " | " << std::setw(5) << std::count(ghe.begin(), ghe.end(), Ghe::Trong) << " |\n";
     });
     std::cout << "+------------+------------+------------+-------------------+-------------+-------+-------+\n";
-    std::cout << "Danh sach ma ve theo tung chuyen bay:\n";
-    quanLy.layDanhSachChuyenBay().duyet([](const ChuyenBay& flight) {
-        std::cout << "  " << flight.layMaChuyenBay() << ": ";
-        bool first = true;
-        flight.layDanhSachVe().duyet([&](const Ve& ve) {
-            if (!first) std::cout << ", ";
-            std::cout << ve.layMaVe();
-            first = false;
-        });
-        if (first) std::cout << "(chua co ve)";
-        std::cout << '\n';
-    });
 }
 
-void hienThiGheTrong(const AirlineManager& quanLy, const ChuyenBay& flight,
-                bool chiGheChuaCho) {
-    std::cout << "Ghe trong (" << flight.laySoGheTrong() << "): ";
-    int count = 0;
-    flight.layGheTrong().duyet([&](int seat) {
-        if (!chiGheChuaCho || !quanLy.gheDangCho(flight.layMaChuyenBay(), seat)) {
-            std::cout << seat << ' ';
-            ++count;
-        }
-    });
-    if (count == 0) std::cout << "(khong co)";
-    std::cout << '\n';
-    if (chiGheChuaCho)
-        std::cout << "Ghe da co yeu cau cho se khong hien thi o danh sach tren.\n";
+void hienThiSoDo(const std::vector<Ghe>& ghe) {
+    std::cout << MAU_LUC << "[ ] Trong   " << MAU_VANG << "( ) Cho duyet   "
+              << MAU_DO << "< > Da cap ve" << MAU_RESET << "\n\n             DAU MAY BAY\n";
+    for (std::size_t i = 0; i < ghe.size(); ++i) {
+        if (i % 6 == 0) std::cout << "  ";
+        if (i % 6 == 3) std::cout << "    ";
+        const bool trong = ghe[i] == Ghe::Trong;
+        const bool cho = ghe[i] == Ghe::Cho;
+        std::cout << (trong ? MAU_LUC : cho ? MAU_VANG : MAU_DO)
+                  << (trong ? '[' : cho ? '(' : '<') << std::right << std::setw(4) << i + 1
+                  << (trong ? ']' : cho ? ')' : '>') << MAU_RESET << ' ';
+        if (i % 6 == 5 || i + 1 == ghe.size()) std::cout << '\n';
+    }
+}
+
+void xemChoDaDat(const AirlineManager& quanLy) {
+    hienThiChuyenBay(quanLy);
+    const auto* flight = quanLy.timChuyenBay(nhapDong("Ma chuyen bay can xem: "));
+    if (!flight) {
+        baoKetQua(false, "Khong tim thay chuyen bay.");
+        return;
+    }
+    ConsoleUI::tieuDe(flight->layMaChuyenBay() + "  >  " + flight->laySanBayDen()
+           + "  |  " + flight->layNgayKhoiHanh());
+    const auto ghe = lapSoDo(quanLy, *flight);
+    hienThiSoDo(ghe);
+    for (Ghe loai : {Ghe::Cho, Ghe::DaCap}) {
+        std::cout << (loai == Ghe::Cho ? "Cho duyet" : "Da cap ve") << " ("
+                  << std::count(ghe.begin(), ghe.end(), loai) << "):";
+        for (std::size_t i = 0; i < ghe.size(); ++i)
+            if (ghe[i] == loai) std::cout << ' ' << i + 1;
+        std::cout << '\n';
+    }
 }
 
 void hienThiKhachHangCho(const AirlineManager& quanLy) {
-    tieuDe("HANG DOI KHACH HANG CHO MUA VE (FIFO)");
+    ConsoleUI::tieuDe("HANG DOI MUA VE");
     std::cout << "STT | CMND/CCCD    | Ho ten                  | Ma CB   | So ghe\n";
     quanLy.layHangDoiKhachHang().duyet([](const KhachHang& khach) {
         std::cout << std::setw(3) << khach.laySoThuTu() << " | "
@@ -211,9 +211,9 @@ void hienThiKhachHangCho(const AirlineManager& quanLy) {
 }
 
 void datVe(AirlineManager& quanLy) {
-    xoaManHinh();
+    ConsoleUI::xoaManHinh();
     hienThiChuyenBay(quanLy);
-    tieuDe("GHI NHAN YEU CAU DAT VE");
+    ConsoleUI::tieuDe("GHI NHAN YEU CAU DAT VE");
     const std::string code = nhapDong("Ma chuyen bay: ");
     const ChuyenBay* flight = quanLy.timChuyenBay(code);
     if (flight == nullptr) {
@@ -224,8 +224,19 @@ void datVe(AirlineManager& quanLy) {
         baoKetQua(false, "Chuyen bay khong nhan dat ve.");
         return;
     }
-    hienThiGheTrong(quanLy, *flight, true);
-    const int seat = nhapSo("Chon so ghe: ", 1, flight->laySoCho());
+    const auto ghe = lapSoDo(quanLy, *flight);
+    hienThiSoDo(ghe);
+    if (std::count(ghe.begin(), ghe.end(), Ghe::Trong) == 0) {
+        baoKetQua(false, "Khong con ghe de chon.");
+        return;
+    }
+    int seat;
+    for (;;) {
+        seat = nhapSo("Chon ghe trong (0 de quay lai): ", 0, flight->laySoCho());
+        if (seat == 0) return;
+        if (ghe[seat - 1] == Ghe::Trong) break;
+        baoKetQua(false, "Ghe nay da co nguoi dat. Vui long chon ghe trong.");
+    }
     const std::string cmnd = nhapDong("CMND/CCCD (9 hoac 12 chu so): ");
     const std::string name = nhapDong("Ho ten: ");
     std::string message;
@@ -254,13 +265,12 @@ void xuLyDatVe(AirlineManager& quanLy) {
 
 void thongKe(AirlineManager& quanLy) {
     for (;;) {
-        xoaManHinh();
-        tieuDe("THONG KE");
-        std::cout << "1. Danh sach khach (ve) theo ma chuyen bay\n"
-                  << "2. Danh sach ghe trong theo ma chuyen bay\n"
-                  << "3. So lan thuc hien chuyen bay cua may bay\n"
-                  << "0. Quay lai\n";
-        const int option = nhapSo("Chon: ", 0, 3);
+        const int option = 1 + ConsoleUI::chon(
+            "THONG KE", {
+                "Danh sach khach theo chuyen bay",
+                "So do ghe theo chuyen bay",
+                "So chuyen bay cua may bay"},
+            "Quay lai");
         if (option == 0) return;
         if (option == 3) {
             const std::string code = nhapDong("So hieu may bay: ");
@@ -286,7 +296,7 @@ void thongKe(AirlineManager& quanLy) {
                               << ve.laySoGhe() << '\n';
                 });
                 if (flight->laySoVe() == 0) std::cout << "(Chua co khach)\n";
-            } else hienThiGheTrong(quanLy, *flight, false);
+            } else hienThiSoDo(lapSoDo(quanLy, *flight));
         }
         tamDung();
     }
@@ -313,23 +323,22 @@ void themChuyenBay(AirlineManager& quanLy) {
 
 void menuQuanLy(AirlineManager& quanLy) {
     for (;;) {
-        xoaManHinh();
-        tieuDe("MENU QUAN LY - NHAN VIEN BAN HANG");
-        std::cout << "1. Xu ly dat ve (FIFO)\n"
-                  << "2. Xu ly tra ve\n"
-                  << "3. Thong ke\n"
-                  << "4. Them may bay\n"
-                  << "5. Them chuyen bay\n"
-                  << "6. Huy/hoan tat chuyen bay\n"
-                  << "7. Hien thi danh sach may bay\n"
-                  << "8. Hien thi danh sach khach dang cho\n"
-                  << "0. Dang xuat\n";
-        const int option = nhapSo("Chon: ", 0, 8);
+        const int option = 1 + ConsoleUI::chon(
+            "QUAY QUAN LY", {
+                "Xu ly dat ve (FIFO)",
+                "Xu ly tra ve",
+                "Thong ke",
+                "Them may bay",
+                "Them chuyen bay",
+                "Huy/hoan tat chuyen bay",
+                "Danh sach may bay",
+                "Danh sach khach dang cho"},
+            "Dang xuat");
         if (option == 0) return;
-        xoaManHinh();
+        ConsoleUI::xoaManHinh();
         if (option == 1) xuLyDatVe(quanLy);
         if (option == 2) {
-            tieuDe("TRA VE");
+            ConsoleUI::tieuDe("TRA VE");
             const std::string ticket = nhapDong("Ma ve can tra: ");
             std::string message;
             const bool result = quanLy.traVe(ticket, message);
@@ -339,7 +348,7 @@ void menuQuanLy(AirlineManager& quanLy) {
         if (option == 4) themMayBay(quanLy);
         if (option == 5) themChuyenBay(quanLy);
         if (option == 6) {
-            tieuDe("CAP NHAT TRANG THAI");
+            ConsoleUI::tieuDe("CAP NHAT TRANG THAI");
             const std::string code = nhapDong("Ma chuyen bay: ");
             const int status = nhapSo("0 = Huy, 3 = Hoan tat: ", 0, 3);
             std::string message;
@@ -355,8 +364,8 @@ void menuQuanLy(AirlineManager& quanLy) {
 // Tra ve true neu sai mat khau 3 lan: dung chuong trinh.
 bool dangNhapQuanLy(AirlineManager& quanLy) {
     for (int attempt = 1; attempt <= 3; ++attempt) {
-        xoaManHinh();
-        tieuDe("DANG NHAP HE THONG");
+        ConsoleUI::xoaManHinh();
+        ConsoleUI::tieuDe("DANG NHAP HE THONG");
         std::cout << "Lan nhap " << attempt << "/3. Go ESC o User hoac bam ESC o Password de thoat.\n";
         const std::string user = nhapDong("User: ");
         if (user == "ESC" || user == "\033") return false;
@@ -378,7 +387,7 @@ bool dangNhapQuanLy(AirlineManager& quanLy) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    batMauConsole();
+    ConsoleUI::khoiTao();
     const std::string folder = (argc >= 2) ? argv[1] : "data";
     AirlineManager quanLy(folder);
     std::string info;
@@ -389,16 +398,17 @@ int main(int argc, char* argv[]) {
     }
     std::cout << MAU_VANG << info << MAU_RESET << '\n';
     for (;;) {
-        xoaManHinh();
-        tieuDe("QUAN LY CHUYEN BAY NOI DIA - PROJECT CTDL 5");
-        std::cout << "1. Hien thi danh sach chuyen bay\n"
-                  << "2. Dat ve (vao hang cho)\n"
-                  << "3. Quan ly (dang nhap)\n"
-                  << "0. Thoat\n";
-        const int option = nhapSo("Chon: ", 0, 3);
+        const int option = 1 + ConsoleUI::chon(
+            "SANH KHOI HANH", {
+                "Bang chuyen bay",
+                "Chon ghe va dat ve",
+                "Quay quan ly (dang nhap)",
+                "So do khoang khach va danh sach ghe da dat"},
+            "Thoat", "", true);
         if (option == 0) break;
-        xoaManHinh();
+        ConsoleUI::xoaManHinh();
         if (option == 1) hienThiChuyenBay(quanLy);
+        if (option == 4) xemChoDaDat(quanLy);
         if (option == 2) datVe(quanLy);
         if (option == 3 && dangNhapQuanLy(quanLy)) return 0;
         tamDung();
