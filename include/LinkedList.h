@@ -15,7 +15,7 @@ private:
         Datatype data;
         Node* next;
 
-        explicit Node(const Datatype& value) : data(value), next(nullptr) {}
+        explicit Node(const Datatype& value);
     };
 
     Node* head_;
@@ -73,5 +73,7 @@ public:
 
     void xoaTatCa();
 };
+
+#include "../src/LinkedList.cpp"
 
 #endif
